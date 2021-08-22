@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
@@ -18,24 +19,35 @@ fn main() {
     println!("Starting the server at: {}", LOCAL);
 
     let mut clients = vec![];
+    let mut usernames = HashMap::new();
     let (tx, rx) = mpsc::channel::<String>();
     loop {
         if let Ok((mut socket, addr)) = server.accept() {
-            println!("Client {} connected.", addr);
+            usernames.insert(
+                addr.to_string(),
+                format!("user{}", &usernames.len()).to_string(),
+            );
+            println!(
+                "Client {} connected with username: {}",
+                addr,
+                usernames.get(&addr.to_string()).unwrap()
+            );
 
             let tx = tx.clone();
             clients.push(socket.try_clone().expect("Failed to clone client"));
 
+            let names = usernames.clone();
             thread::spawn(move || loop {
                 let mut buff = vec![0; MSG_SIZE];
                 match socket.read_exact(&mut buff) {
                     Ok(_) => {
-                        // Transform the message into a string
+                        // Transform the message
                         let msg = buff.into_iter().take_while(|&x| x != 0).collect::<Vec<_>>();
                         let msg = String::from_utf8(msg).expect("Invalid utf8 message");
+                        let msg = format!("{} : {}", &names.get(&addr.to_string()).unwrap(), msg);
 
                         // Log the message and the sender
-                        println!("{}: {}", addr, msg);
+                        println!("{}", msg);
                         tx.send(msg).expect("failed to send msg to rx");
                     }
                     Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),

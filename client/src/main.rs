@@ -20,7 +20,7 @@ fn main() {
             Ok(_) => {
                 let msg = buff.into_iter().take_while(|&x| x != 0).collect::<Vec<_>>();
                 let msg = String::from_utf8(msg).expect("Invalid utf8 message");
-                println!("Message received: {}", msg);
+                println!("{}", msg);
             }
             Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),
             Err(_) => {
@@ -34,7 +34,7 @@ fn main() {
                 let mut buff = msg.clone().into_bytes();
                 buff.resize(MSG_SIZE, 0);
                 client.write_all(&buff).expect("Writing too socket failed");
-                println!("message sent {:?}", msg);
+                /* println!("message sent {:?}", msg); */
             }
             Err(TryRecvError::Empty) => (),
             Err(TryRecvError::Disconnected) => break,
@@ -42,7 +42,8 @@ fn main() {
 
         thread::sleep(Duration::from_millis(100));
     });
-    println!("Write a message:");
+
+    println!("Connected to the chat");
     loop {
         let mut buff = String::new();
         io::stdin()
@@ -50,8 +51,8 @@ fn main() {
             .expect("Reading from stdin failed");
         let msg = buff.trim().to_string();
         if msg == ":quit" || tx.send(msg).is_err() {
+            println!("Cya :)");
             break;
         }
-        println!("Cya :)");
     }
 }
