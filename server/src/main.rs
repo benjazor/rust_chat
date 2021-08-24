@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
@@ -16,7 +17,7 @@ fn sleep() {
 
 struct Client {
     stream: TcpStream,
-    username: String,
+    // username: String,
 }
 fn main() {
     // Initialize the server
@@ -38,20 +39,16 @@ fn main() {
                 addr.to_string(),
                 Client {
                     stream: socket.try_clone().expect("Failed to clone client"),
-                    username: format!("user_{}", &clients.len()).to_string(),
+                    // username: String::new(), //format!("user_{}", &clients.len()).to_string(),
                 },
             );
 
             let tx = tx.clone();
 
             // Log the new connection
-            println!(
-                "Client {} connected with username: {}",
-                addr,
-                &clients.get(&addr.to_string()).unwrap().username,
-            );
+            println!("Client {} connected to the server", addr);
 
-            let username = String::from(&clients.get(&addr.to_string()).unwrap().username);
+            let mut username = String::new();
             thread::spawn(move || loop {
                 let mut buff = vec![0; MSG_SIZE];
                 match socket.read_exact(&mut buff) {
@@ -59,6 +56,18 @@ fn main() {
                         // Transform the message
                         let msg = buff.into_iter().take_while(|&x| x != 0).collect::<Vec<_>>();
                         let msg = String::from_utf8(msg).expect("Invalid utf8 message");
+
+                        // Set the username (First message from client)
+                        if username.eq("") {
+                            let username_regex =
+                                Regex::new(r"[a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?").unwrap();
+                            if username_regex.is_match(&msg) {
+                                username = msg;
+                                println!("{} -> {}", addr, username);
+                            }
+                            continue;
+                        }
+                        // Regular message
                         let msg = format!("{} : {}", username, msg);
 
                         // Log the message and the sender
@@ -87,14 +96,17 @@ fn main() {
             messages.push(msg);
         }
 
+        // Every 100 iteration save the messages to the logs file
         if count >= 100 {
             if Path::new(LOGS_PATH).exists() {
+                // Open the existing file
                 let mut file = OpenOptions::new()
                     .write(true)
                     .append(true)
                     .open(Path::new(LOGS_PATH))
                     .expect(format!("Couldn't open {}", LOGS_PATH).as_str());
 
+                // Append the new messages at the end
                 for msg in messages {
                     if let Err(e) = writeln!(file, "{}", msg) {
                         eprintln!("Couldn't write to file: {}", e);
@@ -106,13 +118,14 @@ fn main() {
                     Err(why) => panic!("Couldn't create {}: {}", LOGS_PATH, why),
                     Ok(file) => file,
                 };
-                // Write the pyramid string to `file`, returns `io::Result<()>`
+                // Write the message string to `file`, returns `io::Result<()>`
                 for msg in messages {
                     if let Err(e) = writeln!(file, "{}", msg) {
                         eprintln!("Couldn't write to: {}", e);
                     }
                 }
             }
+            // Reset the count and messages values
             count = 0;
             messages = Vec::new();
         }
