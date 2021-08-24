@@ -17,7 +17,7 @@ fn sleep() {
 
 struct Client {
     stream: TcpStream,
-    // username: String,
+    username: String,
 }
 fn main() {
     // Initialize the server
@@ -33,22 +33,27 @@ fn main() {
 
     let (tx, rx) = mpsc::channel::<String>();
     loop {
+        // Happens for every connection
         if let Ok((mut socket, addr)) = server.accept() {
             // Store the client, with username
             clients.insert(
                 addr.to_string(),
                 Client {
                     stream: socket.try_clone().expect("Failed to clone client"),
-                    // username: String::new(), //format!("user_{}", &clients.len()).to_string(),
+                    username: String::new(), //format!("user_{}", &clients.len()).to_string(),
                 },
             );
 
+            // Clone the sender so every client can send messages to the receiver
             let tx = tx.clone();
 
             // Log the new connection
             println!("Client {} connected to the server", addr);
 
+            // Store the username to format messages in the thread
             let mut username = String::new();
+
+            // Make a thread to read each user messages
             thread::spawn(move || loop {
                 let mut buff = vec![0; MSG_SIZE];
                 match socket.read_exact(&mut buff) {
@@ -63,7 +68,10 @@ fn main() {
                                 Regex::new(r"[a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?").unwrap();
                             if username_regex.is_match(&msg) {
                                 username = msg;
-                                println!("{} -> {}", addr, username);
+                                println!("New user: {} ({})", username, addr);
+                                if let Err(err) = tx.send(format!("#{}|{}", username, addr)) {
+                                    panic!("Failed to send msg to rx: {}", err);
+                                }
                             }
                             continue;
                         }
@@ -85,15 +93,37 @@ fn main() {
         }
 
         if let Ok(msg) = rx.try_recv() {
+            // Add the message to the logs
+            messages.push(msg.clone());
+
+            // New user
+            if msg[0..1].eq("#") {
+                let username = &msg[1..msg.find('|').expect("Not a valid message")];
+                let address = &msg[msg.find('|').expect("Not a valid message") + 1..];
+                clients
+                    .get_mut(address)
+                    .expect("Client does not exists")
+                    .username = username.to_string();
+                continue;
+            }
+
+            // Format message to send to the clients
+            let mut buff = msg.clone().into_bytes();
+            buff.resize(MSG_SIZE, 0);
+
+            let username = &msg[..msg.find(' ').expect("Not a valid message")];
+
             clients = clients
                 .into_iter()
                 .filter_map(|mut client| {
-                    let mut buff = msg.clone().into_bytes();
-                    buff.resize(MSG_SIZE, 0);
-                    client.1.stream.write_all(&buff).map(|_| client).ok()
+                    // Send the message to everyone except to the sender
+                    if !username.eq(&client.1.username) {
+                        client.1.stream.write_all(&buff).map(|_| client).ok()
+                    } else {
+                        client.1.stream.write_all(&[]).map(|_| client).ok()
+                    }
                 })
                 .collect::<HashMap<_, _>>();
-            messages.push(msg);
         }
 
         // Every 100 iteration save the messages to the logs file
